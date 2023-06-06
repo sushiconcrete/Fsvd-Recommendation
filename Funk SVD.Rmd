@@ -1,10 +1,6 @@
 # Realization of A Funk SVD Based Music Recommendation
 
-May 28 2023
-
 **Yigang Meng**
-
-Professor:
 
 ## Introduction: Funk SVD - What's in it?
 
