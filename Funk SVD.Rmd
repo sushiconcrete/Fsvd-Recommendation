@@ -1,0 +1,251 @@
+# Realization of A Funk SVD Based Music Recommendation
+
+May 28 2023
+
+**Yigang Meng**
+
+Professor:
+
+## Introduction: Funk SVD - What's in it?
+
+Rather
+
+## Background: Why Funk SVD? (Why not SVD?)
+
+Rating table are often sparse.(Medhy, 2019) And when it comes to a recommendation system, we really want to "fit" the missing values based on the ratings in the original matrix. Given a real matrix $R$ .The traditional SVD is given by:
+
+$$
+R=U \Sigma V^T
+$$
+
+, where $U$ is orthogonal whose columns are the left singular vectors of $R$ . $\Sigma$ is a diagonal matrix consists of the singular values, and $V^T$ is also orthogonal and its rows are the right singular vectors of $R$ .
+
+While as we mentioned in the introduction, the traditional is natrually not able to handle the missing values, and it can be really computationally expensive.(Zhang, 2022). One want to do SVD on an incomplete matrix, one must fill out the data using other values such as global mean $\bar{X}$ . And then we can perform SVD to get the estimated $\hat{R}$.
+
+Funk SVD is a model that has latent factors. **Latent factors** are implicitly defined by the model itself, and it's hard to interpret sometimes, but it can be really helpful in finding the underlying pattern that is driven by user-item matrices. One can think of latent factors as the "gradients" of the items, and we add different amount of each gradient to construct a portrait of a user.
+
+![](images/WechatIMG1465.png){width="631"}
+
+A Funk SVD defined on a matrix $R_{m \times n}$ is as follow
+
+$$
+R\approx \mathrm{U} \mathrm{V}^{\mathrm{T}}
+$$
+
+where $U_{m \times k}$ and $V^T_{k \times n}$ are two low rank matrices which has the latent factors of the users and the items, respectively. Our goal is to find the $U_i$ and $V^T_j$ via minimizing the loss function:
+
+$$
+J(U_i, V^T_j)=\min \Sigma_{\mathrm{i}, \mathrm{j} \in \mathrm{train}}\left(\mathrm{R}_{\mathrm{ij}}-\mathrm{U}_{\mathrm{i}} \mathrm{V}_{\mathrm{j}}^{\mathrm{T}}\right)^2+\lambda\left(\left\|\mathrm{U}_{\mathrm{i}}\right\|^2+\left\|\mathrm{V}_{\mathrm{j}}^{\mathrm{T}}\right\|^2\right)
+$$
+
+, where $\lambda$ is the regularization parameter. (expalain what is regularization parameter). And we take the partial derivatives with respects to $U_i$ and $V^T_i$, respectively, we get:
+
+$$
+\frac{\partial J\left(U_i, V_j^T\right)}{\partial U_i}=\sum_{j \in \text { Train }}\left[-2\left(R_{i j}-U_i V_j^T\right) V_j^T\right]+2 \lambda U_i
+$$
+
+$$
+\frac{\partial J\left(U_i, V_j^T\right)}{\partial V_j}=\sum_{i \in \text { Train }}\left[-2\left(R_{i j}-U_i V_j^T\right) U_i\right]+2 \lambda V_j
+$$
+
+In Stochastic gradient descent method, the hyper parameter $\alpha = 2c$ that is served as the how precisely we want to move in a direction. And one updates two variables along with the opposite of the gradient(Yadav, 2020) to find $U_i$ and $V^T_i$ :
+
+$$
+U_i \leftarrow U_i+\alpha \cdot\left(\left(R_{i j}-U_i V_j^T\right) V_j-2 \lambda U_i\right)
+$$
+
+$$
+V_j \leftarrow V_j+\alpha \cdot\left(\left(R_{i j}-U_i V_j^T\right) U_i-2 \lambda V_j\right)
+$$
+
+## Perform on actual data: movie? music?
+
+```{r}
+# Set the seed for reproducibility
+set.seed(1223)
+
+# Create a random user-item matrix with some missing values
+R <- matrix(sample(c(1:5), 50, replace = TRUE), 3, 5)
+
+# Initialize parameters
+n_factors <- 3  # number of latent factors
+n_users <- nrow(R)
+n_items <- ncol(R)
+learning_rate <- 0.01
+n_epochs <- 100  # number of training epochs
+
+# Initialize the user and item matrices with random values
+P <- matrix(runif(n_users * n_factors), n_users, n_factors)
+Q <- matrix(runif(n_items * n_factors), n_items, n_factors)
+
+# Train the model
+for (epoch in 1:n_epochs) {
+  for (i in 1:n_users) {
+    for (j in 1:n_items) {
+      if (!is.na(R[i, j])) {
+        # Compute the error for this rating
+        error <- R[i, j] - P[i, ] %*% Q[j, ]
+        
+        # Update the user and item matrices
+        P[i, ] <- P[i, ] + learning_rate * as.numeric(error) * Q[j, ]
+        Q[j, ] <- Q[j, ] + learning_rate * as.numeric(error) * P[i, ]
+      }
+    }
+  }
+}
+
+# The predicted ratings are given by the product of P and Q
+R_hat <- P %*% t(Q)
+
+# Print the original and predicted ratings
+R <- as.data.frame(R)
+R_hat <- as.data.frame(R_hat)
+P <- as.data.frame(P)
+V <- as.data.frame(t(Q))
+R
+P
+V
+```
+
+## Computation:
+
+```{r}
+df <- read.csv("ratings_Digital_Music.csv")
+```
+
+```{r}
+colnames(df) <- c("user","item","rating")
+df <- df[, -4]
+# Filter out users with fewer than 10 ratings
+df <- df %>% group_by(user) %>% filter(n() >= 30)
+
+# Filter out items with fewer than 10 ratings
+df <- df %>% group_by(item) %>% filter(n() >= 40)
+```
+
+```{r}
+library(tidyverse)
+user_item_matrix <- df %>%
+  spread(key = item, value = rating)
+
+# Print the user-item matrix
+```
+
+```{r}
+df1 <- as.data.frame(user_item_matrix)
+rownames(df1) <- df1[,1]
+df1 <- df1[,-1]
+head(df1)
+dim(df1)
+#head(user_item_matrix)
+#users <- unlist(user_item_matrix[,1])
+#rownames(user_item_matrix) <- users
+```
+
+```{r}
+R <- df1
+colnames(R) <- NULL
+rownames(R) <- NULL
+dim(R)
+R <- as.matrix(R)
+```
+
+```{r}
+set.seed(123)
+
+n_factors <- 3 
+n_users <- nrow(R)
+n_items <- ncol(R)
+learning_rate <- 0.01
+n_epochs <- 100  
+tolerance <- 1e-4  # Set a tolerance for the change in error
+lambda <- 0.05  # Set the regularization parameter
+
+P <- matrix(runif(n_users * n_factors), n_users, n_factors)
+Q <- matrix(runif(n_items * n_factors), n_items, n_factors)
+
+errors <- c()  # Initialize a vector to store the errors
+for (epoch in 1:n_epochs) {
+  total_error <- 0  # Initialize the total error for this epoch
+  for (i in 1:n_users) {
+    for (j in 1:n_items) {
+      if (!is.na(R[i, j])) {
+        error <- R[i, j] - P[i, ] %*% Q[j, ]
+        total_error <- total_error + error^2  # Add the squared error to the total
+        P[i, ] <- P[i, ] + learning_rate * (as.numeric(error) * Q[j, ] - lambda * P[i, ])
+        Q[j, ] <- Q[j, ] + learning_rate * (as.numeric(error) * P[i, ] - lambda * Q[j, ])
+      }
+    }
+  }
+  errors <- c(errors, total_error)  # Store the total error for this epoch
+  if (epoch > 1 && abs(errors[epoch] - errors[epoch-1]) < tolerance) {
+    break  # Stop training if the change in error is less than the tolerance
+  }
+}
+
+R_hat <- P %*% t(Q)
+print(R)
+print(R_hat)
+```
+
+```{r}
+rated_items <- apply(R, 1, function(x) which(!is.na(x)))
+# Assuming `R` is your original user-item matrix and `R_hat` is your estimated matrix
+
+# Initialize a list to store the recommendations for each user
+recommendations <- vector("list", nrow(R))
+recommendations <- lapply(recommendations, function(x) x <- c())
+
+# For each user
+for (i in 1:nrow(R)) {
+  # Get the estimated ratings for this user
+  estimated_ratings <- R_hat[i, ]
+  
+  # Order the items by estimated rating, from highest to lowest
+  ordered_items <- order(estimated_ratings, decreasing = TRUE)
+  
+  # Initialize a counter for the number of recommendations
+  count <- 0
+  
+  # For each item in the ordered items
+  for (item in ordered_items) {
+    # If the item is not in the user's rated items list
+    if (!(item %in% rated_items[[i]])) {
+      # Add the item to the user's recommendations
+      recommendations[[i]] <- c(recommendations[[i]], item)
+      
+      # Increment the counter
+      count <- count + 1
+      
+      # If we have found three recommendations, break the loop
+      if (count == 3) {
+        break
+      }
+    }
+  }
+}
+recommendations[60]
+
+```
+
+```{r}
+# Install the package
+
+# Load the package
+library(recommenderlab)
+
+# Create a random user-item matrix with some missing values
+
+# Determine the number of latent factors
+n_users <- nrow(R)
+n_items <- ncol(R)
+n_factors <- min(n_users, n_items) - 1  # Ensure k is less than the number of users and items
+result <- funkSVD(R, k = n_factors, gamma = 0.02, lambda = 0.002, min_improvement = 1e-06, min_epochs = 100, max_epochs = 500, verbose = FALSE)
+
+  # The predicted ratings are given by the product of U and V'
+R_hat <- result$U %*% t(result$V)
+
+  # Print the original and predicted ratings
+print(R)
+print(R_hat)
+```
